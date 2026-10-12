@@ -96,7 +96,8 @@ jobs:
             --title "rea Termux Release v${VERSION}" \
             --notes "Termux 适配版 REA（fork 自 morluto/rea）。
 
-- dist/skills/scripts 已用 build:termux 构建
-- rea-agents-<ver>.tgz = 官方 npm 打包，Termux 里: npm i -g <file>
-- rea-termux-<ver>.tar.gz = 便携包，解压到 \$PREFIX/lib/rea 直接跑
-- 使用: bash install-rea.sh  (先跑 setup-termux.sh 装工具链)"
+            - dist/skills/scripts 已用 build:termux 构建
+            - rea-agents-<ver>.tgz = 官方 npm 打包，Termux 里: npm i -g <file>
+            - rea-termux-<ver>.tar.gz = 便携包，解压到 \$PREFIX/lib/rea 直接跑
+            - 使用: bash install-rea.sh  (先跑 setup-termux.sh 装工具链)
+            "
