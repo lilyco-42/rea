@@ -1,0 +1,102 @@
+name: termux-release
+
+# 只做一件事：把 REA 构建成 Termux 可用的 release 产物。
+# 刻意砍掉了上游庞大的验证矩阵（browser/ghidra/hopper/… 那些都还在，
+# 但本 fork 的默认行为是"只要 release"），手动触发或改到相关文件时才跑。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/termux-release.yml'
+      - 'termux/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/prepack.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: termux-release-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: "0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node (24.x, REA 要求 ^24.11)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.0"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build REA for Termux (low-mem tsc + skills metadata)
+        run: npm run build:termux
+
+      - name: Generate package metadata
+        run: npm run metadata:generate || true
+
+      - name: Pack npm release
+        id: pack
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          npm pack --pack-destination "$RUNNER_TEMP/pack"
+          ls "$RUNNER_TEMP/pack"
+
+      - name: Bundle portable Termux tarball
+        id: portable
+        run: |
+          VERSION="${{ steps.pack.outputs.version }}"
+          TGZ="$(ls "$RUNNER_TEMP/pack"/rea-agents-*.tgz)"
+          mkdir -p "$RUNNER_TEMP/portable"
+          tar -xzf "$TGZ" -C "$RUNNER_TEMP/portable"
+          tar -czf "$RUNNER_TEMP/pack/rea-termux-$VERSION.tar.gz" \
+            -C "$RUNNER_TEMP/portable" .
+          echo "tar=rea-termux-$VERSION.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Stage helper scripts + version marker
+        run: |
+          VERSION="${{ steps.pack.outputs.version }}"
+          cp termux/install-rea.sh  "$RUNNER_TEMP/pack/install-rea.sh"
+          cp termux/setup-termux.sh "$RUNNER_TEMP/pack/setup-termux.sh"
+          printf '%s\n' "$VERSION" > "$RUNNER_TEMP/pack/version.txt"
+
+      - name: Publish GitHub Release (v<ver>-termux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.pack.outputs.version }}"
+          TAG="v${VERSION}-termux"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes
+          fi
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/pack"/*.tgz \
+            "$RUNNER_TEMP/pack"/*.tar.gz \
+            "$RUNNER_TEMP/pack"/install-rea.sh \
+            "$RUNNER_TEMP/pack"/setup-termux.sh \
+            "$RUNNER_TEMP/pack"/version.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "rea Termux Release v${VERSION}" \
+            --notes "Termux 适配版 REA（fork 自 morluto/rea）。
+
+- dist/skills/scripts 已用 build:termux 构建
+- rea-agents-<ver>.tgz = 官方 npm 打包，Termux 里: npm i -g <file>
+- rea-termux-<ver>.tar.gz = 便携包，解压到 \$PREFIX/lib/rea 直接跑
+- 使用: bash install-rea.sh  (先跑 setup-termux.sh 装工具链)"
