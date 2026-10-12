@@ -53,6 +53,7 @@ jobs:
       - name: Pack npm release
         id: pack
         run: |
+          mkdir -p "$RUNNER_TEMP/pack"
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           npm pack --pack-destination "$RUNNER_TEMP/pack"
